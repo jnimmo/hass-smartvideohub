@@ -6,6 +6,7 @@ import collections
 from asyncio import ensure_future
 
 _LOGGER = logging.getLogger(__name__)
+SERVER_RECONNECT_DELAY = 30
 
 class SmartVideoHub(asyncio.Protocol):
     def __init__(self, cmdServer, cmdServerPort, loop=None):
@@ -15,24 +16,22 @@ class SmartVideoHub(asyncio.Protocol):
         self._updateCallbacks = []
         self._errorMessage = None
         self._connected = False
+        self._connecting = False
         self.initialised = False
         self.inputs = dict()
+        self.filtered_inputs = dict()
         self.outputs = collections.defaultdict(dict)
 
         if loop:
             _LOGGER.debug("Latching onto an existing event loop.")
             self._eventLoop = loop
-            self._ownLoop = False
-        else:
-            _LOGGER.debug("Creating our own event loop.")
-            self._eventLoop = asyncio.new_event_loop()
-            self._ownLoop = True
 
     def connection_made(self, transport):
         """asyncio callback for a successful connection."""
         _LOGGER.debug("Connected to Black Magic Smart Video Hub API")
         self._transport = transport
         self._connected = True
+        self._connecting = False
 
     def data_received(self, data):
         """asyncio callback when data is received on the socket"""
@@ -47,15 +46,19 @@ class SmartVideoHub(asyncio.Protocol):
                     break
                 else:
                     search = re.search('([A-Z ]+):[\r\n]',line)
+
                     if search:
                         current_block = search.group(1)
                         _LOGGER.debug("Parsing block %s", current_block)
                         if current_block == "END PRELUDE":
                             self.initialised = True
+                            self._send_update_callback(output_id=0)
                     elif current_block == "INPUT LABELS":
                         input_number = int(line.split(" ",1)[0])+1
                         input_label = line.split(" ",1)[1].strip()
                         self.inputs.setdefault(input_number, input_label)
+                        if input_label != 'Input ' + str(input_number):
+                            self.filtered_inputs.setdefault(input_number, input_label)
                         _LOGGER.debug('Named input %i as %s', input_number, input_label)
                     elif current_block == "OUTPUT LABELS":
                         output_number = int(line.split(" ",1)[0])+1
@@ -64,78 +67,98 @@ class SmartVideoHub(asyncio.Protocol):
                         self.outputs[output_number]['output'] = output_number
                         _LOGGER.debug('Named output %i as %s', output_number, output_label)
                     elif current_block == "VIDEO OUTPUT ROUTING":
-                        from_output = int(line.split(" ",1)[0])+1
-                        to_input = int(line.split(" ",1)[1])+1
-                        self.outputs[from_output]['input'] = to_input
-                        self.outputs[from_output]['input_name'] = self.inputs[to_input]
-                        _LOGGER.debug('Output %i is now displaying input %i', from_output, to_input)
+                        output_id = int(line.split(" ",1)[0])+1
+                        input_id = int(line.split(" ",1)[1])+1
+                        self.outputs[output_id]['input'] = input_id
+                        self.outputs[output_id]['input_name'] = self.inputs[input_id]
+                        _LOGGER.debug('Output %i is now displaying input %i', output_id, input_id)
                         if self.initialised:
-                            self._send_update_callback()
+                            self._send_update_callback(output_id=output_id)
 
     def connection_lost(self, exc):
         """asyncio callback for a lost TCP connection"""
         self._connected = False
-        _LOGGER.debug('The server closed the connection')
         self._send_update_callback()
+        _LOGGER.error('Connection to the server lost')
 
-        if self._ownLoop:
-            _LOGGER.debug('Stop the event loop')
-            self._eventLoop.stop()
-
+    async def connect_to_server(self):
+        try:
+            transport, protocol = await self._eventLoop.create_connection(lambda: self,
+                                                    self._cmdServer,
+                                                    self._cmdServerPort)
+        except:
+            _LOGGER.info(str.format("Timeout connecting to Smart Video Hub at {0}:{1}",
+                                self._cmdServer, self._cmdServerPort))
+        self._connecting = False
 
     def connect(self):
-        """Internal method for making the physical connection."""
-        _LOGGER.info(str.format("Connecting to Smart Video Hub at {0}:{1}", self._cmdServer, self._cmdServerPort))
-        coro = self._eventLoop.create_connection(lambda: self, self._cmdServer, self._cmdServerPort)
-        ensure_future(coro, loop=self._eventLoop)
+        if self._connected:
+            return
+
+        if self._connecting:
+            return
+
+        self._connecting = True
+        _LOGGER.info(str.format("Connecting to Smart Video Hub at {0}:{1}",
+                                self._cmdServer, self._cmdServerPort))
+
+        asyncio.ensure_future(self.connect_to_server(), loop=self._eventLoop)
 
     def start(self):
         """Public method for initiating connectivity with the envisalink."""
         self.connect()
-
-        if self._ownLoop:
-            _LOGGER.debug("Starting up our own event loop.")
-            self._eventLoop.run_forever()
-            self._eventLoop.close()
-            _LOGGER.debug("Connection shut down.")
+        _LOGGER.info('Connected to server')
 
     def stop(self):
         """Public method for shutting down connectivity with the envisalink."""
         self._connected = False
         self._transport.close()
 
-        if self._ownLoop:
-            _LOGGER.debug("Shutting down Videohub connection...")
-            self._eventLoop.call_soon_threadsafe(self._eventLoop.stop)
-        else:
-            _LOGGER.debug("An event loop was given to us- we will shutdown when that event loop shuts down.")
-
-    def _send_update_callback(self):
+    def _send_update_callback(self, output_id=False):
         """Internal method to notify all update callback subscribers."""
         if self._updateCallbacks == []:
             _LOGGER.debug("Update callback has not been set by client.")
 
         for callback in self._updateCallbacks:
-            callback()
+            callback(output_id=output_id)
 
     def set_input(self, outputNumber, inputNumber):
-        if(outputNumber <= len(self.outputs) and inputNumber <= len(self.inputs) and self.connected):
-            _LOGGER.debug("Setting output %i to input %i", outputNumber, inputNumber)
-            command = "VIDEO OUTPUT ROUTING:\n" + str(outputNumber-1) + " " + str(inputNumber-1) + "\n\n"
-            self._transport.write(command.encode('ascii'))
+        self.connect()
+        
+        if self.connected:
+            if(outputNumber <= len(self.outputs) and inputNumber <= len(self.inputs) and self.connected):
+                _LOGGER.debug("Setting output %i to input %i", outputNumber, inputNumber)
+                command = "VIDEO OUTPUT ROUTING:\n" + str(outputNumber-1) + " " + str(inputNumber-1) + "\n\n"
+                self._transport.write(command.encode('ascii'))
+        else:
+            _LOGGER.error("The input could not be changed due to the server being disconnected")
 
     def set_input_by_name(self, outputNumber, inputName):
-        input_list = self.get_input_list()
-        if inputName in input_list and self._connected:
-            self.set_input(outputNumber,input_list.index(inputName)+1)
-            return True
+        self.connect()
+        
+        if self.connected:
+            input_list = self.get_input_list()
+            if inputName in input_list:
+                self.set_input(outputNumber,input_list.index(inputName)+1)
+                return True
+            else:
+                _LOGGER.debug("Input %s was not found in the list of inputs",inputName)
+                return False
         else:
-            _LOGGER.debug("Input %s was not found in the list of inputs or the server was disconnected",inputName)
-            return False
+            _LOGGER.error("The input could not be changed due to the server being disconnected")
 
-    def get_input_list(self):
+    def get_input_list(self, filter_inputs = False):
         # Convert the dictionary to a list - remove the last value which seems to be a default object
-        return list(self.inputs.values())
+        if filter_inputs:
+            return list(self.filtered_inputs.values())
+        else:
+            return list(self.inputs.values())
+
+    def get_inputs(self, filter_inputs = False):
+        if filter_inputs:
+            return self.filtered_inputs
+        else:
+            return self.inputs
 
     def get_input_name(self, input_number):
         if input_number in self.inputs:
@@ -173,6 +196,10 @@ class SmartVideoHub(asyncio.Protocol):
     @property
     def connected(self):
         return self._connected
+
+    @property
+    def connecting(self):
+        return self._connecting
 
     def add_update_callback(self, method):
         """Public method to add a callback subscriber."""
