@@ -1,0 +1,9 @@
+{
+  "domain": "smartvideohub",
+  "name": "Smart Video Hub",
+  "documentation": "https://github.com/jnimmo/hass-smartvideohub/",
+  "dependencies": [],
+  "codeowners": [],
+  "requirements": [],
+  "version": "0.0.1"
+}
