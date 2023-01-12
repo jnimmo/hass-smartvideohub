@@ -135,6 +135,11 @@ class SmartVideoHubOutput(MediaPlayerEntity):
         else:
             return MediaPlayerState.OFF
 
+    @property
+    def media_title(self) -> str | None:
+        """Title of current playing media."""
+        return self._output_name
+
     def select_source(self, source):
         """Set input source."""
         return self._smartvideohub.set_input_by_name(self._output_id, source)
