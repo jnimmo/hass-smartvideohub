@@ -171,8 +171,8 @@ class SmartVideoHub(asyncio.Protocol):
         else:
             return None
 
-    @asyncio.coroutine
-    def keep_alive(self):
+
+    async def keep_alive(self):
         """Send a keepalive command to reset it's watchdog timer."""
         while self._connected:
             _LOGGER.debug("Sending keepalive to server")
