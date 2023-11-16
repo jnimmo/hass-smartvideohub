@@ -14,7 +14,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
-    MediaPlayerState,
+    MediaPlayerDeviceClass,
     PLATFORM_SCHEMA,
     ENTITY_ID_FORMAT,
 )
@@ -86,6 +86,7 @@ class SmartVideoHubOutput(MediaPlayerEntity):
 
     # pylint: disable=too-many-public-methods
     _attr_supported_features = MediaPlayerEntityFeature.SELECT_SOURCE
+    _attr_device_class = MediaPlayerDeviceClass.RECEIVER
 
     def __init__(
         self,
@@ -106,6 +107,7 @@ class SmartVideoHubOutput(MediaPlayerEntity):
         self._connected = smartvideohub.connected
         self._hide_default_inputs = hide_default_inputs
         self._attr_source_list = smartvideohub.get_input_list(self._hide_default_inputs)
+        self._attr_unique_id = f"smartvideohub_output_{self._output_id}"
         self.entity_id = async_generate_entity_id(
             ENTITY_ID_FORMAT,
             entity_prefix + " output " + str(self._output_id),
@@ -128,17 +130,17 @@ class SmartVideoHubOutput(MediaPlayerEntity):
         return self._output_name
 
     @property
-    def state(self) -> MediaPlayerState:
+    def state(self):
         """Return the state of the zone."""
         if self._connected:
-            return MediaPlayerState.PLAYING
+            return "playing"
         else:
-            return MediaPlayerState.OFF
+            return "off"
 
     @property
     def media_title(self) -> str | None:
         """Title of current playing media."""
-        return self._output_name
+        return self._attr_source
 
     def select_source(self, source):
         """Set input source."""
