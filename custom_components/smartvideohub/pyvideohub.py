@@ -37,7 +37,7 @@ class SmartVideoHub(asyncio.Protocol):
     def data_received(self, data):
         """asyncio callback when data is received on the socket"""
         if data != "":
-            lines = str.splitlines(data.decode("ascii"), 1)
+            lines = str.splitlines(data.decode("utf-8"), 1)
             current_block = None
             for line in lines:
                 # Check for blank lines, these indicate the end of a block
@@ -171,14 +171,13 @@ class SmartVideoHub(asyncio.Protocol):
         else:
             return None
 
-    @asyncio.coroutine
-    def keep_alive(self):
-        """Send a keepalive command to reset it's watchdog timer."""
+    async def keep_alive(self):
+        """Send a keepalive command to reset its watchdog timer."""
         while self._connected:
-            _LOGGER.debug("Sending keepalive to server")
+            _LOGGER.debug("Sending keepalive to the server")
             command = "PING:\n\n"
             self._transport.write(command.encode("ascii"))
-            yield from asyncio.sleep(120, loop=self._eventLoop)
+            await asyncio.sleep(120)
 
     def get_outputs(self):
         return self.outputs
