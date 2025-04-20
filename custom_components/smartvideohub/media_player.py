@@ -48,17 +48,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             ],
             True,
         )
-    elif dev.model == MODEL_STREAMING:
-        async_add_entities(
-            [
-                StreamingDevice(
-                    hass,
-                    dev,
-                    deviceInfo
-                )
-            ],
-            True,
-        )
 
 
 class SmartVideoHubOutput(MediaPlayerEntity):
@@ -134,67 +123,3 @@ class SmartVideoHubOutput(MediaPlayerEntity):
             _LOGGER.info("SmartVideoHub sent a status update for output %i", output_id)
             self.update()
             self.schedule_update_ha_state(False)
-
-class StreamingDevice(MediaPlayerEntity):
-    _attr_has_entity_name = True
-    # pylint: disable=too-many-public-methods
-    _attr_supported_features = (MediaPlayerEntityFeature.SELECT_SOURCE |
-                                MediaPlayerEntityFeature.SELECT_SOUND_MODE |
-                                MediaPlayerEntityFeature.PLAY_MEDIA |
-                                MediaPlayerEntityFeature.PLAY |
-                                MediaPlayerEntityFeature.STOP)
-    _attr_device_class = MediaPlayerDeviceClass.TV
-
-    def __init__(
-        self,
-        hass,
-        dev,
-        device_info
-    ):
-        """Initialize new zone."""
-        self._dev = dev
-        self._attr_name = dev.name
-        self._attr_unique_id = dev.attrs.get("Unique ID")
-        self.entity_id = async_generate_entity_id(
-            ENTITY_ID_FORMAT,
-            dev.attrs.get("Unique ID"),
-            hass=hass,
-        )
-        self._attr_device_info = device_info
-        dev.add_update_callback(self.update_callback)
-
-    def update(self):
-        """Retrieve latest state."""
-        self._attr_source = self._dev.stream_set.get("Video Mode")
-        self._attr_sound_mode = self._dev.stream_set.get("Current Quality Level")
-        self._attr_source_list = self._dev.stream_set.get("Available Video Modes").split(", ")
-        self._attr_sound_mode_list = self._dev.stream_set.get("Available Quality Levels").split(", ")
-        self._attr_available = self._dev.connected
-
-    @property
-    def state(self):
-        """Return the state of the zone."""
-        if self._dev.stream_state.get("Status") == "Idle":
-            return MediaPlayerState.IDLE
-        else:
-            return MediaPlayerState.PLAYING
-
-    @property
-    def media_title(self) -> str | None:
-        """Title of current playing media."""
-        return self._attr_source
-
-    def media_play(self) -> None:
-        return self._dev.set_steam_state(True)
-
-    def media_stop(self) -> None:
-        return self._dev.set_steam_state(False)
-
-    def select_source(self, source):
-        """Set input source."""
-        return self._dev.set_video_mode(source)
-
-    def update_callback(self, output_id=0):
-        """Called when data is received by pySmartVideoHub"""
-        self.update()
-        self.schedule_update_ha_state(False)

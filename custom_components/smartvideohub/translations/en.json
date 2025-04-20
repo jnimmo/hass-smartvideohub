@@ -28,6 +28,9 @@
           "local": "Local Platform"
         }
       },
+      "quality_level": {
+        "name": "Quality Level"
+      },
       "lut": {
         "name": "LUT",
         "state": {
@@ -45,6 +48,15 @@
     "button": {
       "reboot": {
         "name": "Reboot Device"
+      }
+    },
+    "switch": {
+      "streaming": {
+        "name": "Streaming",
+        "state": {
+          "off": "Idle",
+          "on": "On Air"
+        }
       }
     }
   }

@@ -23,7 +23,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             Platform.MEDIA_PLAYER,
             Platform.SELECT,
             Platform.TEXT,
-            Platform.BUTTON
+            Platform.BUTTON,
+            Platform.SWITCH
         ])
     )
 
@@ -35,7 +36,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             Platform.MEDIA_PLAYER,
             Platform.SELECT,
             Platform.TEXT,
-            Platform.BUTTON
+            Platform.BUTTON,
+            Platform.SWITCH
         ]
     )
     hass.data[DOMAIN][entry.entry_id]['client'].stop()

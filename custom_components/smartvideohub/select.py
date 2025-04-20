@@ -24,6 +24,18 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     dev,
                     "platform",
                     deviceInfo
+                ),
+                StreamingSelectDevice(
+                    hass,
+                    dev,
+                    "quality_level",
+                    deviceInfo
+                ),
+                StreamingSelectDevice(
+                    hass,
+                    dev,
+                    "video_mode",
+                    deviceInfo
                 )
             ],
             True,
@@ -70,6 +82,14 @@ class StreamingSelectDevice(SelectEntity):
             self._attr_options = self._dev.stream_set.get("Available Default Platforms").split(", ") + \
                                  self._dev.stream_set.get("Available Custom Platforms").split(", ")
             self._attr_available = self._dev.stream_state.get("Status") == "Idle" and self._dev.connected
+        elif self._attr_translation_key == "video_mode":
+            self._attr_current_option = self._dev.stream_set.get("Video Mode")
+            self._attr_options = self._dev.stream_set.get("Available Video Modes").split(", ")
+            self._attr_available = self._dev.stream_state.get("Status") == "Idle" and self._dev.connected
+        elif self._attr_translation_key == "quality_level":
+            self._attr_current_option = self._dev.stream_set.get("Current Quality Level")
+            self._attr_options = self._dev.stream_set.get("Available Quality Levels").split(", ")
+            self._attr_available = self._dev.stream_state.get("Status") == "Idle" and self._dev.connected
         elif self._attr_translation_key == "lut":
             self._attr_options = ["none"]
             self._attr_options.extend(["Lut %d" % x for x in range(int(self._dev.teranex_set.get("Number of LUTs")))])
@@ -81,6 +101,10 @@ class StreamingSelectDevice(SelectEntity):
         self._attr_current_option = option
         if self._attr_translation_key == "platform":
             self._dev.set_stream_platform(option)
+        elif self._attr_translation_key == "video_mode":
+            self._dev.set_video_mode(option)
+        elif self._attr_translation_key == "quality_level":
+            self._dev.set_quality_level(option)
         elif self._attr_translation_key == "lut":
             self._dev.set_lut(option)
         self.async_write_ha_state()
