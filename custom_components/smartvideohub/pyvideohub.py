@@ -118,6 +118,8 @@ class SmartVideoHub(asyncio.Protocol):
                         if len(line_conf) == 2 and line_conf[1].strip() != "":
                             if line_conf[0] == "Unique ID":
                                 self.attrs[line_conf[0]] = line_conf[1].strip()
+                            elif line_conf[0] == "Label":
+                                self.name = line_conf[1].strip()
                             self.teranex_set[line_conf[0]] = line_conf[1].strip()
                         if self.initialised.is_set():
                             self._send_update_callback(output_id=0)
