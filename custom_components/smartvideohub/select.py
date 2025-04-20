@@ -69,11 +69,12 @@ class StreamingSelectDevice(SelectEntity):
             self._attr_current_option = self._dev.stream_set.get("Current Platform")
             self._attr_options = self._dev.stream_set.get("Available Default Platforms").split(", ") + \
                                  self._dev.stream_set.get("Available Custom Platforms").split(", ")
-            self._attr_available = self._dev.stream_state.get("Status") == "Idle"
+            self._attr_available = self._dev.stream_state.get("Status") == "Idle" and self._dev.connected
         elif self._attr_translation_key == "lut":
             self._attr_options = ["none"]
             self._attr_options.extend(["Lut %d" % x for x in range(int(self._dev.teranex_set.get("Number of LUTs")))])
             self._attr_current_option = self._dev.teranex_set.get("Lut selection", "none")
+            self._attr_available = self._dev.connected
 
     async def async_select_option(self, option: str) -> None:
         """Update the current selected option."""

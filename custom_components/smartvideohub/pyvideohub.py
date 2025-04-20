@@ -135,6 +135,8 @@ class SmartVideoHub(asyncio.Protocol):
         self.initialised.set()
         self._send_update_callback()
         _LOGGER.error("Connection to the server lost")
+        if not self._stopped:
+            self.connect()
 
     def connect(self):
         _LOGGER.info(
@@ -153,11 +155,13 @@ class SmartVideoHub(asyncio.Protocol):
     def start(self):
         """Public method for initiating connectivity with the envisalink."""
         self.connect()
+        self._stopped = False
         _LOGGER.info("Connected to server")
 
     def stop(self):
         """Public method for shutting down connectivity with the envisalink."""
         self._connected = False
+        self._stopped = True
         self._transport.close()
 
     def _send_update_callback(self, output_id=False):
@@ -279,4 +283,8 @@ class SmartVideoHub(asyncio.Protocol):
 
     def set_steam_state(self, mode):
         command = "STREAM STATE:\nAction: %s\n\n" % ("Start" if mode else "Stop")
+        self._transport.write(command.encode("ascii"))
+
+    def reboot(self):
+        command = "SHUTDOWN:\nAction: Reboot\n\n"
         self._transport.write(command.encode("ascii"))

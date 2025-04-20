@@ -41,6 +41,11 @@
       "stream_key": {
         "name": "Stream Key"
       }
+    },
+    "button": {
+      "reboot": {
+        "name": "Reboot Device"
+      }
     }
   }
 }

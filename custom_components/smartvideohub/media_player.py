@@ -169,6 +169,7 @@ class StreamingDevice(MediaPlayerEntity):
         self._attr_sound_mode = self._dev.stream_set.get("Current Quality Level")
         self._attr_source_list = self._dev.stream_set.get("Available Video Modes").split(", ")
         self._attr_sound_mode_list = self._dev.stream_set.get("Available Quality Levels").split(", ")
+        self._attr_available = self._dev.connected
 
     @property
     def state(self):
