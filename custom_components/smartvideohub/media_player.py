@@ -6,79 +6,59 @@ from __future__ import annotations
 import logging
 import asyncio
 
-import voluptuous as vol
-
-from homeassistant.const import CONF_HOST, CONF_PORT, CONF_NAME
-from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
+    MediaPlayerState,
     MediaPlayerEntityFeature,
     MediaPlayerDeviceClass,
-    PLATFORM_SCHEMA,
     ENTITY_ID_FORMAT,
 )
-from homeassistant.helpers.entity import async_generate_entity_id
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.helpers.entity import async_generate_entity_id, DeviceInfo
 
-DATA_SMARTVIDEOHUB = "smartvideohub"
 
-CONF_HIDE_DEFAULT_INPUTS = "hide_default_inputs"
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Required(CONF_PORT): cv.port,
-        vol.Required(CONF_NAME): cv.string,
-        vol.Optional(CONF_HIDE_DEFAULT_INPUTS, default=False): cv.boolean,
-    }
-)
+from .const import *
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    """Set up the Monoprice 6-zone amplifier platform."""
-    port = config.get(CONF_PORT)
-    host = config.get(CONF_HOST)
-    name = config.get(CONF_NAME)
-    hide_default_inputs = config.get(CONF_HIDE_DEFAULT_INPUTS)
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up SmartVideoHub Device"""
+    dev = hass.data[DOMAIN][config_entry.entry_id]['client']
 
-    smartvideohub = None
-    from .pyvideohub import SmartVideoHub
-
-    _LOGGER.info("Establishing connection with SmartVideoHub at %s:%i", host, port)
-    if not smartvideohub:
-        smartvideohub = SmartVideoHub(host, port, hass.loop)
-        smartvideohub.start()
-
-    _LOGGER.info("Adding %i outputs", len(smartvideohub.get_outputs()))
-
-    while not smartvideohub.is_initialised:
-        _LOGGER.info("Waiting for connection to Videohub")
-        await asyncio.sleep(2)
-
-    _LOGGER.debug(repr(smartvideohub.get_outputs()))
-    async_add_entities(
-        [
-            SmartVideoHubOutput(
-                hass,
-                smartvideohub,
-                name,
-                output_number,
-                output,
-                hide_default_inputs=hide_default_inputs,
-            )
-            for output_number, output in smartvideohub.get_outputs().items()
-        ],
-        True,
+    deviceInfo = DeviceInfo(
+        identifiers={(DOMAIN, config_entry.entry_id)},
+        name= dev.name,
+        manufacturer="BlackMagic Design",
+        model=dev.model
     )
+    if dev.model == MODEL_VIDEOHUB:
+        _LOGGER.info("Adding %i outputs", len(dev.get_outputs()))
+        async_add_entities(
+            [
+                SmartVideoHubOutput(
+                    hass,
+                    dev,
+                    dev.attrs.get("Unique ID"),
+                    output_number,
+                    output,
+                    deviceInfo,
+                    hide_default_inputs=config_entry.data.get(CONF_HIDE_DEFAULT_INPUTS, False),
+                )
+                for output_number, output in dev.get_outputs().items()
+            ],
+            True,
+        )
+    elif dev.model == MODEL_STREAMING:
+        async_add_entities(
+            [
+                StreamingDevice(
+                    hass,
+                    dev,
+                    deviceInfo
+                )
+            ],
+            True,
+        )
 
 
 class SmartVideoHubOutput(MediaPlayerEntity):
@@ -95,13 +75,14 @@ class SmartVideoHubOutput(MediaPlayerEntity):
         entity_prefix,
         output_number,
         output,
+        deviceInfo,
         hide_default_inputs=False,
     ):
         """Initialize new zone."""
         _LOGGER.info("Adding SmartVideoHub output %i", output_number)
         self._smartvideohub = smartvideohub
         self._output_id = output_number
-        self._output_name = output["name"]
+        self._output_name = output.get("name", "Output %d" % output_number)
         self._attr_source_source_name = smartvideohub.get_input_name(output_number)
         self._source_id = output["input"]
         self._connected = smartvideohub.connected
@@ -113,11 +94,12 @@ class SmartVideoHubOutput(MediaPlayerEntity):
             entity_prefix + " output " + str(self._output_id),
             hass=hass,
         )
+        self._attr_device_info = deviceInfo
         smartvideohub.add_update_callback(self.update_callback)
 
     def update(self):
         """Retrieve latest state."""
-        self._output_name = self._smartvideohub.get_outputs()[self._output_id]["name"]
+        self._output_name = self._smartvideohub.get_outputs()[self._output_id].get("name")
         self._source_id = self._smartvideohub.get_selected_input(self._output_id)
         self._attr_source = self._smartvideohub.get_input_name(self._source_id)
         self._attr_source_list = self._smartvideohub.get_input_list(
@@ -152,3 +134,66 @@ class SmartVideoHubOutput(MediaPlayerEntity):
             _LOGGER.info("SmartVideoHub sent a status update for output %i", output_id)
             self.update()
             self.schedule_update_ha_state(False)
+
+class StreamingDevice(MediaPlayerEntity):
+    _attr_has_entity_name = True
+    # pylint: disable=too-many-public-methods
+    _attr_supported_features = (MediaPlayerEntityFeature.SELECT_SOURCE |
+                                MediaPlayerEntityFeature.SELECT_SOUND_MODE |
+                                MediaPlayerEntityFeature.PLAY_MEDIA |
+                                MediaPlayerEntityFeature.PLAY |
+                                MediaPlayerEntityFeature.STOP)
+    _attr_device_class = MediaPlayerDeviceClass.TV
+
+    def __init__(
+        self,
+        hass,
+        dev,
+        device_info
+    ):
+        """Initialize new zone."""
+        self._dev = dev
+        self._attr_name = dev.name
+        self._attr_unique_id = dev.attrs.get("Unique ID")
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            dev.attrs.get("Unique ID"),
+            hass=hass,
+        )
+        self._attr_device_info = device_info
+        dev.add_update_callback(self.update_callback)
+
+    def update(self):
+        """Retrieve latest state."""
+        self._attr_source = self._dev.stream_set.get("Video Mode")
+        self._attr_sound_mode = self._dev.stream_set.get("Current Quality Level")
+        self._attr_source_list = self._dev.stream_set.get("Available Video Modes").split(", ")
+        self._attr_sound_mode_list = self._dev.stream_set.get("Available Quality Levels").split(", ")
+
+    @property
+    def state(self):
+        """Return the state of the zone."""
+        if self._dev.stream_state.get("Status") == "Idle":
+            return MediaPlayerState.IDLE
+        else:
+            return MediaPlayerState.PLAYING
+
+    @property
+    def media_title(self) -> str | None:
+        """Title of current playing media."""
+        return self._attr_source
+
+    def media_play(self) -> None:
+        return self._dev.set_steam_state(True)
+
+    def media_stop(self) -> None:
+        return self._dev.set_steam_state(False)
+
+    def select_source(self, source):
+        """Set input source."""
+        return self._dev.set_video_mode(source)
+
+    def update_callback(self, output_id=0):
+        """Called when data is received by pySmartVideoHub"""
+        self.update()
+        self.schedule_update_ha_state(False)
