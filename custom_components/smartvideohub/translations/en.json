@@ -1,0 +1,63 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Blackmagic Design Setup",
+        "description": "Enter Blackmagic Design Device IP",
+        "data": {
+          "host": "Host",
+          "port": "Port (9977 for WebPresenter, 9995 for Teranex)"
+        }
+      }
+    },
+    "abort": {
+      "already_in_progress": "Configuration is already in progress.",
+      "already_configured": "This device is already configured."
+    },
+    "error": {
+      "cannot_connect": "Connect to Host Failed",
+      "communication_error": "Communication Error"
+    }
+  },
+  "entity": {
+    "select": {
+      "platform": {
+        "name": "Platform",
+        "state": {
+          "local": "Local Platform"
+        }
+      },
+      "quality_level": {
+        "name": "Quality Level"
+      },
+      "lut": {
+        "name": "LUT",
+        "state": {
+          "none": "None",
+          "Lut 0": "LUT Table 1",
+          "Lut 1": "LUT Table 2"
+        }
+      }
+    },
+    "text": {
+      "stream_key": {
+        "name": "Stream Key"
+      }
+    },
+    "button": {
+      "reboot": {
+        "name": "Reboot Device"
+      }
+    },
+    "switch": {
+      "streaming": {
+        "name": "Streaming",
+        "state": {
+          "off": "Idle",
+          "on": "On Air"
+        }
+      }
+    }
+  }
+}

@@ -8,20 +8,29 @@ from asyncio import ensure_future
 _LOGGER = logging.getLogger(__name__)
 SERVER_RECONNECT_DELAY = 30
 
+MODEL_VIDEOHUB = "VideoHub"
+MODEL_STREAMING = "Streaming"
+MODEL_TERANEX = "TERANEX"
 
 class SmartVideoHub(asyncio.Protocol):
-    def __init__(self, cmdServer, cmdServerPort, loop=None):
-        self._cmdServer = cmdServer
-        self._cmdServerPort = cmdServerPort
+    def __init__(self, host, port, loop=None):
+        self._cmdServer = host
+        self._cmdServerPort = port
         self._transport = None
         self._updateCallbacks = []
         self._errorMessage = None
         self._connected = False
         self._connecting = False
-        self.initialised = False
+        self.initialised = asyncio.Event()
         self.inputs = dict()
         self.filtered_inputs = dict()
         self.outputs = collections.defaultdict(dict)
+        self.attrs = dict()
+        self.stream_set = dict()
+        self.stream_state = dict()
+        self.teranex_set = dict()
+        self.model = None
+        self.name = ""
 
         if loop:
             _LOGGER.debug("Latching onto an existing event loop")
@@ -47,12 +56,13 @@ class SmartVideoHub(asyncio.Protocol):
                     break
                 else:
                     search = re.search("([A-Z ]+):[\r\n]", line)
+                    line_conf = line.split(": ")
 
                     if search:
                         current_block = search.group(1)
                         _LOGGER.debug("Parsing block %s", current_block)
                         if current_block == "END PRELUDE":
-                            self.initialised = True
+                            self.initialised.set()
                             self._send_update_callback(output_id=0)
                     elif current_block == "INPUT LABELS":
                         input_number = int(line.split(" ", 1)[0]) + 1
@@ -73,18 +83,60 @@ class SmartVideoHub(asyncio.Protocol):
                         output_id = int(line.split(" ", 1)[0]) + 1
                         input_id = int(line.split(" ", 1)[1]) + 1
                         self.outputs[output_id]["input"] = input_id
-                        self.outputs[output_id]["input_name"] = self.inputs[input_id]
+                        self.outputs[output_id]["input_name"] = self.get_input_name(input_id)
                         _LOGGER.debug(
                             "Output %i is now displaying input %i", output_id, input_id
                         )
-                        if self.initialised:
+                        if self.initialised.is_set():
                             self._send_update_callback(output_id=output_id)
+                    elif current_block == "VIDEOHUB DEVICE":
+                        self.model = MODEL_VIDEOHUB
+                        if len(line_conf) == 2 and line_conf[1].strip() != "":
+                            self.attrs[line_conf[0]] = line_conf[1].strip()
+                            if line_conf[0] == "Friendly Name":
+                                self.name = line_conf[1].strip()
+                    elif current_block == "IDENTITY":
+                        if len(line_conf) == 2 and line_conf[1].strip() != "":
+                            self.attrs[line_conf[0]] = line_conf[1].strip()
+                            if line_conf[0] == "Model":
+                                if line_conf[1].startswith("Blackmagic Web Presenter"):
+                                    self.model = MODEL_STREAMING
+                            elif line_conf[0] == "Label":
+                                self.name = line_conf[1].strip()
+                    elif current_block == "STREAM SETTINGS":
+                        if len(line_conf) == 2 and line_conf[1].strip() != "":
+                            self.stream_set[line_conf[0]] = line_conf[1].strip()
+                        if self.initialised.is_set():
+                            self._send_update_callback(output_id=0)
+                    elif current_block == "STREAM STATE":
+                        if len(line_conf) == 2 and line_conf[1].strip() != "":
+                            self.stream_state[line_conf[0]] = line_conf[1].strip()
+                        if self.initialised.is_set():
+                            self._send_update_callback(output_id=0)
+                    elif current_block == "TERANEX MINI DEVICE":
+                        self.model = MODEL_TERANEX
+                        if len(line_conf) == 2 and line_conf[1].strip() != "":
+                            if line_conf[0] == "Unique ID":
+                                self.attrs[line_conf[0]] = line_conf[1].strip()
+                            elif line_conf[0] == "Label":
+                                self.name = line_conf[1].strip()
+                            self.teranex_set[line_conf[0]] = line_conf[1].strip()
+                        if self.initialised.is_set():
+                            self._send_update_callback(output_id=0)
+                    elif current_block == "VIDEO OUTPUT":
+                        if len(line_conf) == 2 and line_conf[1].strip() != "":
+                            self.teranex_set[line_conf[0]] = line_conf[1].strip()
+                        if self.initialised.is_set():
+                            self._send_update_callback(output_id=0)
 
     def connection_lost(self, exc):
         """asyncio callback for a lost TCP connection"""
         self._connected = False
+        self.initialised.set()
         self._send_update_callback()
         _LOGGER.error("Connection to the server lost")
+        if not self._stopped:
+            self.connect()
 
     def connect(self):
         _LOGGER.info(
@@ -98,16 +150,18 @@ class SmartVideoHub(asyncio.Protocol):
         coro = self._eventLoop.create_connection(
             lambda: self, self._cmdServer, self._cmdServerPort
         )
-        ensure_future(coro)
+        return ensure_future(coro)
 
     def start(self):
         """Public method for initiating connectivity with the envisalink."""
         self.connect()
+        self._stopped = False
         _LOGGER.info("Connected to server")
 
     def stop(self):
         """Public method for shutting down connectivity with the envisalink."""
         self._connected = False
+        self._stopped = True
         self._transport.close()
 
     def _send_update_callback(self, output_id=False):
@@ -163,7 +217,7 @@ class SmartVideoHub(asyncio.Protocol):
         if input_number in self.inputs:
             return self.inputs[input_number]
         else:
-            return "Ínput " + input_number
+            return "Ínput %d" % input_number
 
     def get_selected_input(self, output_number):
         if output_number in self.outputs:
@@ -189,7 +243,7 @@ class SmartVideoHub(asyncio.Protocol):
 
     @property
     def is_initialised(self):
-        return self.initialised
+        return self.initialised.is_set()
 
     @property
     def connected(self):
@@ -198,3 +252,39 @@ class SmartVideoHub(asyncio.Protocol):
     def add_update_callback(self, method):
         """Public method to add a callback subscriber."""
         self._updateCallbacks.append(method)
+
+    def set_video_mode(self, mode):
+        command = "STREAM SETTINGS:\nVideo Mode: %s\n\n" % mode
+        self._transport.write(command.encode("ascii"))
+
+    def set_stream_platform(self, platform):
+        command = "STREAM SETTINGS:\nCurrent Platform: %s\n\n" % platform
+        self._transport.write(command.encode("ascii"))
+
+    def set_stream_key(self, mode):
+        command = "STREAM SETTINGS:\nStream Key: %s\n\n" % mode
+        self._transport.write(command.encode("ascii"))
+
+    def set_quality_level(self, mode):
+        command = "STREAM SETTINGS:\nCurrent Quality Level: %s\n\n" % mode
+        self._transport.write(command.encode("ascii"))
+
+    def set_lut(self, lut_id):
+        if isinstance(lut_id, int) and int(lut_id) == 1:
+            lut = "Lut 0"
+        elif isinstance(lut_id, int) and int(lut_id) == 2:
+            lut = "Lut 1"
+        elif isinstance(lut_id, int):
+            lut = "none"
+        elif isinstance(lut_id, str):
+            lut = lut_id
+        command = "VIDEO OUTPUT:\nLut on loop: true\nLut selection: %s\n\n" % lut
+        self._transport.write(command.encode("ascii"))
+
+    def set_steam_state(self, mode):
+        command = "STREAM STATE:\nAction: %s\n\n" % ("Start" if mode else "Stop")
+        self._transport.write(command.encode("ascii"))
+
+    def reboot(self):
+        command = "SHUTDOWN:\nAction: Reboot\n\n"
+        self._transport.write(command.encode("ascii"))
