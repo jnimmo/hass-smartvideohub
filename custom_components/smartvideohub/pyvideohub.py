@@ -252,6 +252,12 @@ class SmartVideoHub(asyncio.Protocol):
     def add_update_callback(self, method):
         """Public method to add a callback subscriber."""
         self._updateCallbacks.append(method)
+        return lambda: self.remove_update_callback(method)
+
+    def remove_update_callback(self, method):
+        """Remove a previously registered update callback."""
+        if method in self._updateCallbacks:
+            self._updateCallbacks.remove(method)
 
     def set_video_mode(self, mode):
         command = "STREAM SETTINGS:\nVideo Mode: %s\n\n" % mode
