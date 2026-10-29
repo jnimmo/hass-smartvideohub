@@ -73,8 +73,14 @@ class SmartVideoHubOutput(MediaPlayerEntity):
         self._smartvideohub = smartvideohub
         self._output_id = output_number
         self._output_name = output.get("name", "Output %d" % output_number)
-        self._source_id = output["input"]
-        self._attr_source = smartvideohub.get_input_name(self._source_id)
+        # Routing may be missing if the prelude was incomplete; the next
+        # update from the Videohub fills it in.
+        self._source_id = output.get("input")
+        self._attr_source = (
+            smartvideohub.get_input_name(self._source_id)
+            if self._source_id is not None
+            else None
+        )
         self._hide_default_inputs = hide_default_inputs
         self._attr_source_list = smartvideohub.get_input_list(self._hide_default_inputs)
         self._attr_unique_id = f"smartvideohub_output_{self._output_id}"
@@ -97,7 +103,11 @@ class SmartVideoHubOutput(MediaPlayerEntity):
         output = self._smartvideohub.get_outputs()[self._output_id]
         self._output_name = output.get("name", "Output %d" % self._output_id)
         self._source_id = self._smartvideohub.get_selected_input(self._output_id)
-        self._attr_source = self._smartvideohub.get_input_name(self._source_id)
+        self._attr_source = (
+            self._smartvideohub.get_input_name(self._source_id)
+            if self._source_id is not None
+            else None
+        )
         self._attr_source_list = self._smartvideohub.get_input_list(
             self._hide_default_inputs
         )
