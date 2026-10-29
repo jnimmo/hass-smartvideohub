@@ -45,3 +45,41 @@ class SmartVideoHubCallbackTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _prelude():
+    text = (
+        "PROTOCOL PREAMBLE:\nVersion: 2.8\n\n"
+        "VIDEOHUB DEVICE:\nDevice present: true\nFriendly Name: Hub\n"
+        "Unique ID: 7C2E0D0A0514\n\n"
+        "INPUT LABELS:\n" + "".join(f"{i} In {i + 1}\n" for i in range(40)) + "\n"
+        "OUTPUT LABELS:\n" + "".join(f"{i} Out {i + 1}\n" for i in range(40)) + "\n"
+        "VIDEO OUTPUT ROUTING:\n"
+        + "".join(f"{i} {(i * 7) % 40}\n" for i in range(40))
+        + "\nEND PRELUDE:\n\n"
+    )
+    return text.replace("\n", "\r\n").encode()
+
+
+class SmartVideoHubChunkedPreludeTest(unittest.TestCase):
+    """TCP may split the prelude anywhere; nothing must get lost."""
+
+    def test_prelude_split_at_every_position(self):
+        data = _prelude()
+        for cut in range(1, len(data), 7):
+            client = pyvideohub.SmartVideoHub("127.0.0.1", 9990)
+            client.data_received(data[:cut])
+            client.data_received(data[cut:])
+            self.assertTrue(client.is_initialised)
+            self.assertEqual(len(client.inputs), 40)
+            self.assertEqual(len(client.outputs), 40)
+            for output in client.outputs.values():
+                self.assertIn("input", output)
+            self.assertEqual(client.get_selected_input(3), 15)
+
+    def test_routing_update_split_mid_line(self):
+        client = pyvideohub.SmartVideoHub("127.0.0.1", 9990)
+        client.data_received(_prelude())
+        client.data_received(b"VIDEO OUTPUT ROUTING:\r\n5 1")
+        client.data_received(b"2\r\n\r\n")
+        self.assertEqual(client.get_selected_input(6), 13)
